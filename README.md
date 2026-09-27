@@ -26,6 +26,13 @@ Run backend tests with `.venv/bin/pytest backend/tests -q`.
 
 Open `http://localhost:5173`. The Vite development server proxies `/api` to the backend on port 8000. API documentation is available at `http://localhost:8000/docs`.
 
+## Main workflows
+
+- **Add visit:** dependent HQ → Area → Doctor selection with doctor activity context.
+- **Multiple visits:** select several doctors in an area and atomically create an independent visit for each one.
+- **Insights:** period comparisons, repeat activity, coverage, top doctors/products, weekday patterns, category coverage, and time-since-last-visit analysis.
+- **Data management:** remove individual visits, doctors, products, or areas, or clear a complete data category using an exact confirmation phrase.
+
 ## Import safety
 
 Uploading a workbook creates a preview only. Review the detected mapping, validation results, new and matched counts, and resolve every ambiguous row before confirmation. Confirmation never creates visits, never deletes doctors omitted from a workbook, and only replaces existing doctor fields when the imported cell is nonblank.

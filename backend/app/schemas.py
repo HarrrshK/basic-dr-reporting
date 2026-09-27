@@ -102,6 +102,27 @@ class VisitCreate(BaseModel):
         return self
 
 
+class BulkVisitCreate(BaseModel):
+    doctor_ids: list[int] = Field(min_length=1, max_length=200)
+    visit_date: date
+    visit_time: time | None = None
+    purpose: str | None = None
+    product_ids: list[int] = Field(default_factory=list)
+    outcome: str | None = None
+    notes: str | None = None
+    follow_up_required: bool = False
+    follow_up_date: date | None = None
+    follow_up_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_bulk_visit(self):
+        if len(set(self.doctor_ids)) != len(self.doctor_ids):
+            raise ValueError("Each doctor can only be selected once")
+        if self.follow_up_required and not self.follow_up_date:
+            raise ValueError("follow_up_date is required when follow-up is required")
+        return self
+
+
 class VisitOut(ORMModel):
     id: int
     doctor_id: int

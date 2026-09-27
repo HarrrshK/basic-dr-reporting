@@ -5,7 +5,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Area, Doctor, FollowUpStatus, Visit
+from ..models import Area, Doctor, FollowUpStatus, Product, Visit, VisitProduct
 
 router = APIRouter(tags=["analytics"])
 
@@ -103,3 +103,59 @@ def trend(start: date | None = None, end: date | None = None, area: str | None =
     rows = db.execute(select(Visit.visit_date, func.count(Visit.id).label("visits"), func.count(func.distinct(Visit.doctor_id)).label("doctors"))
         .join(Doctor).where(*doctor_conditions(area,hq,category), Visit.visit_date.between(start,end)).group_by(Visit.visit_date).order_by(Visit.visit_date)).all()
     return [dict(r._mapping) for r in rows]
+
+
+@router.get("/analytics/insights")
+def insights(start: date | None = None, end: date | None = None, area: str | None = None,
+             hq: str | None = None, category: str | None = None, db: Session = Depends(get_db)):
+    start, end = period(start, end)
+    span = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=span - 1)
+    scope = doctor_conditions(area, hq, category)
+    active_scope = doctor_conditions(area, hq, category, True)
+
+    def visit_count(date_start, date_end):
+        return db.scalar(select(func.count(Visit.id)).join(Doctor).where(*scope, Visit.visit_date.between(date_start, date_end))) or 0
+
+    current_visits = visit_count(start, end)
+    previous_visits = visit_count(previous_start, previous_end)
+    unique_doctors = db.scalar(select(func.count(func.distinct(Visit.doctor_id))).join(Doctor)
+        .where(*scope, Visit.visit_date.between(start, end))) or 0
+    active_doctors = db.scalar(select(func.count(Doctor.id)).where(*active_scope)) or 0
+
+    top_doctors = db.execute(select(Doctor.id, Doctor.name, Area.name.label("area"), func.count(Visit.id).label("visits"),
+        func.max(Visit.visit_date).label("last_visit")).join(Visit).outerjoin(Area).where(*scope, Visit.visit_date.between(start,end))
+        .group_by(Doctor.id, Area.name).order_by(func.count(Visit.id).desc(), Doctor.name).limit(10)).all()
+    top_products = db.execute(select(Product.id, Product.name, func.count(Visit.id).label("visits"),
+        func.count(func.distinct(Visit.doctor_id)).label("doctors")).join(VisitProduct, VisitProduct.product_id == Product.id)
+        .join(Visit, Visit.id == VisitProduct.visit_id).join(Doctor, Doctor.id == Visit.doctor_id)
+        .where(*scope, Visit.visit_date.between(start,end)).group_by(Product.id).order_by(func.count(Visit.id).desc()).limit(10)).all()
+    category_rows = db.execute(select(func.coalesce(Doctor.category, "Unspecified").label("category"),
+        func.count(func.distinct(Doctor.id)).label("doctors"), func.count(func.distinct(Visit.doctor_id)).label("visited"),
+        func.count(Visit.id).label("visits")).select_from(Doctor)
+        .outerjoin(Visit, (Visit.doctor_id == Doctor.id) & Visit.visit_date.between(start,end))
+        .where(*active_scope).group_by(func.coalesce(Doctor.category, "Unspecified")).order_by(func.count(Visit.id).desc())).all()
+    attention_rows = db.execute(select(Doctor.id, Doctor.name, Area.name.label("area"), func.max(Visit.visit_date).label("last_visit"),
+        func.count(Visit.id).label("total_visits")).select_from(Doctor).outerjoin(Visit).outerjoin(Area)
+        .where(*active_scope).group_by(Doctor.id, Area.name)).all()
+    attention = [{"id": row.id, "name": row.name, "area": row.area, "last_visit": row.last_visit,
+                  "days_since_last_visit": (date.today() - row.last_visit).days if row.last_visit else None,
+                  "total_visits": row.total_visits} for row in attention_rows]
+    attention.sort(key=lambda row: (row["last_visit"] is not None, -(row["days_since_last_visit"] or 0)))
+
+    weekday_counts = {name: 0 for name in ("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")}
+    for visit_date in db.scalars(select(Visit.visit_date).join(Doctor).where(*scope, Visit.visit_date.between(start,end))):
+        weekday_counts[visit_date.strftime("%A")] += 1
+    change = None if previous_visits == 0 else round((current_visits - previous_visits) * 100 / previous_visits, 1)
+    return {"period": {"start": start, "end": end, "previous_start": previous_start, "previous_end": previous_end},
+        "kpis": {"visits": current_visits, "previous_visits": previous_visits, "visit_change_percentage": change,
+                 "unique_doctors": unique_doctors, "active_doctors": active_doctors,
+                 "coverage_percentage": round(unique_doctors * 100 / active_doctors, 1) if active_doctors else 0,
+                 "repeat_visits": max(current_visits - unique_doctors, 0),
+                 "average_visits_per_covered_doctor": round(current_visits / unique_doctors, 2) if unique_doctors else 0},
+        "top_doctors": [dict(row._mapping) for row in top_doctors],
+        "top_products": [dict(row._mapping) for row in top_products],
+        "category_coverage": [{**dict(row._mapping), "coverage_percentage": round(row.visited*100/row.doctors,1) if row.doctors else 0} for row in category_rows],
+        "weekday_distribution": [{"day": day, "visits": visits} for day, visits in weekday_counts.items()],
+        "attention": attention[:15]}

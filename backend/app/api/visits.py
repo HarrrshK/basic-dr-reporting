@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from ..models import Area, Doctor, FollowUpStatus, Product, Visit
-from ..schemas import VisitCreate, VisitOut
+from ..schemas import BulkVisitCreate, VisitCreate, VisitOut
 
 router = APIRouter(prefix="/visits", tags=["visits"])
 
@@ -25,6 +25,27 @@ def create_visit(payload: VisitCreate, db: Session = Depends(get_db)):
     visit = Visit(**values, products=load_products(db, payload.product_ids))
     db.add(visit); db.commit(); db.refresh(visit)
     return visit
+
+
+@router.post("/bulk", status_code=201)
+def create_bulk_visits(payload: BulkVisitCreate, db: Session = Depends(get_db)):
+    doctors = list(db.scalars(select(Doctor).where(Doctor.id.in_(payload.doctor_ids))))
+    found = {doctor.id for doctor in doctors}
+    missing = sorted(set(payload.doctor_ids) - found)
+    if missing:
+        raise HTTPException(422, f"Doctors do not exist: {missing}")
+    inactive = sorted(doctor.id for doctor in doctors if not doctor.active)
+    if inactive:
+        raise HTTPException(422, f"Inactive doctors cannot receive new visits: {inactive}")
+    products = load_products(db, payload.product_ids)
+    values = payload.model_dump(exclude={"doctor_ids", "product_ids"})
+    if payload.follow_up_required:
+        values["follow_up_status"] = FollowUpStatus.pending
+    visits = [Visit(doctor_id=doctor_id, **values, products=list(products)) for doctor_id in payload.doctor_ids]
+    db.add_all(visits)
+    db.commit()
+    return {"created": len(visits), "visit_ids": [visit.id for visit in visits],
+            "doctor_ids": payload.doctor_ids}
 
 
 @router.get("")

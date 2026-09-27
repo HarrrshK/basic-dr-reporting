@@ -12,5 +12,8 @@ import './reports.css'
 import './areas.css'
 import './dashboard.css'
 import './products.css'
+import './bulk.css'
+import './insights.css'
+import './data.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>)
