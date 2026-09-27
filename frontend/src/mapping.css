@@ -1,0 +1,2 @@
+.mapping-editor{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.mapping-editor label{display:grid;gap:5px;font-size:12px;color:#64766e}.mapping-editor select{border:1px solid #ccd9d3;border-radius:6px;padding:7px;background:white}@media(max-width:900px){.mapping-editor{grid-template-columns:1fr}}
+.import-metrics{grid-template-columns:repeat(6,minmax(100px,1fr))}.pill.skipped{background:#eef1f0;color:#627069}

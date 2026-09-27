@@ -1,0 +1,16 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import {BrowserRouter} from 'react-router-dom'
+import App from './App'
+import './styles.css'
+import './extras.css'
+import './mapping.css'
+import './doctors.css'
+import './smart.css'
+import './history.css'
+import './reports.css'
+import './areas.css'
+import './dashboard.css'
+import './products.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>)

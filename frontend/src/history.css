@@ -1,0 +1,2 @@
+.preset-row{display:flex;align-items:center;gap:7px;margin-bottom:12px}.preset-row span{font-size:12px;color:#667970;margin-right:4px}.preset-row button{border:1px solid #d3dfd9;background:#f8fbf9;border-radius:20px;padding:6px 10px;cursor:pointer}.tag-list{display:flex;gap:4px;flex-wrap:wrap}.tag-list span{background:#e7f4ee;color:#176b4d;border-radius:16px;padding:3px 7px;font-size:11px}
+.preset-row button.selected{background:#1c7659;color:white;border-color:#1c7659}
