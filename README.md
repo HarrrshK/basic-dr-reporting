@@ -1,26 +1,110 @@
 # Field Visit Reporting
 
-A single-user application for maintaining a doctor master from Excel, recording field visits, and analysing doctor, territory, product, and follow-up activity.
+A single-user application for managing a doctor master, recording field visits, and analysing doctor, territory, product, and follow-up activity.
 
-## Architecture
+## Production architecture
 
-- **Hosted backend:** FastAPI, SQLAlchemy 2, Alembic, SQLite on a Render persistent disk
-- **Permanent laptop database:** PostgreSQL, written by the laptop sync agent only after a requested flush
-- **Frontend:** React, TypeScript, Vite, hosted on Netlify
-- **Data model:** doctor master data is independent from transactional visit data. Analytics are SQL-derived and are never stored as counters.
-- **Import:** Excel files are previewed and mapped before confirmation. Unknown columns are retained in `Doctor.extra_data`; repeated imports use conservative matching.
-- **Staging:** the hosted application reads and writes its SQLite workspace. Pressing **Flush to laptop** creates a durable snapshot request; the laptop agent copies that snapshot into PostgreSQL.
+```text
+Netlify React app → Render FastAPI → Supabase PostgreSQL (source of truth)
+                                       ├── laptop PostgreSQL backup agent
+                                       └── daily JSON → optional S3-compatible storage
+```
 
-The Render SQLite database is the live working copy, so the site continues to browse and report data after a flush. The SQLite queue contains the pending snapshot request. The laptop agent replaces the laptop's business tables inside one PostgreSQL transaction; only after that transaction commits does it acknowledge the request, which removes the queued snapshot. Retrying a snapshot is safe because applying it replaces the same tables with the same full data set.
+The FastAPI service reads and writes Supabase directly. The laptop is never on the live application's request path. Turning it off only pauses the laptop backup. The agent pulls ordered database changes in batches, commits them to laptop PostgreSQL, and advances its cursor only after the local transaction succeeds. Stable IDs and PostgreSQL upserts make retries safe. PostgreSQL triggers record committed inserts, updates, and deletes in the change feed, including bulk data-management operations.
 
-Render's SQLite workspace and pending flush requests must be on a persistent disk. If the laptop is offline, the live site continues storing data on that disk and keeps flush requests queued. PostgreSQL is updated when the laptop agent reconnects.
+The existing Excel importer still updates Doctor Master only. Visits remain separate records linked to doctors. The database schema and backup format include areas, products, imports, doctors, visits, and visit-product relationships.
+
+## Create a Supabase database
+
+1. Create a Supabase project and set its database password.
+2. In **Connect**, copy the PostgreSQL session-pooler or direct connection string. Use the host, port, username, and database shown by Supabase. Put the URL in a private `.env` as `DATABASE_URL`; do not commit it.
+3. Supabase connections require TLS. This application adds `sslmode=require` when it is missing from a PostgreSQL URL. [Supabase connection documentation](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+If the database password contains reserved URL characters, URL-encode them before saving the connection string.
+
+## Deploy the API to Render
+
+1. Push the repository to GitHub and create a Render Blueprint using `render.yaml`.
+2. On the Render service, set `DATABASE_URL` to the Supabase PostgreSQL URL and `CORS_ORIGINS` to the exact Netlify site origin (for example `https://your-site.netlify.app`). Render generates `API_ACCESS_TOKEN`; keep it private.
+3. Deploy. The start command runs Alembic migrations before starting FastAPI. There is no production SQLite file or persistent disk. A Render restart does not remove application records because they live in Supabase.
+4. Confirm `https://<render-service>.onrender.com/api/health` returns `{"status":"ok"}`. `GET /api/health/db` checks the actual PostgreSQL connection and requires the API token.
+
+The Render free web service can spin down while idle, so the first request after a quiet period may take longer. Its local filesystem is not used for report storage.
+
+## Deploy the frontend to Netlify
+
+1. Import the same GitHub repository as a Netlify site.
+2. Set the build environment variable `VITE_API_URL` to `https://<render-service>.onrender.com/api`.
+3. Set Render's `CORS_ORIGINS` to the exact Netlify URL, then redeploy both services.
+4. Open the site. The header asks for the Render `API_ACCESS_TOKEN` once and stores it in that browser's local storage. The browser talks only to FastAPI; it never receives the database URL.
+
+## Move existing SQLite data to Supabase
+
+Keep the original SQLite file unchanged. The repository's `dr_reporting.db` was checked and migrated into a separate temporary database during implementation: it contained 133 doctors, 8 areas, 3 import batches, and no visits or products. The migration preserved all row IDs and passed its relationship checks.
+
+After Render or a local Alembic command has upgraded Supabase to the current migration:
+
+```bash
+cp .env.example .env
+# Edit .env and set DATABASE_URL to Supabase, plus API_ACCESS_TOKEN if running locally.
+.venv/bin/alembic -c backend/alembic.ini upgrade head
+PYTHONPATH=backend .venv/bin/python backend/scripts/migrate_legacy_sqlite.py dr_reporting.db
+```
+
+The migration validates source tables and primary keys, copies tables in foreign-key order, preserves IDs/timestamps/JSON, and runs as one PostgreSQL transaction. If a target ID already exists with different field values, it stops and rolls back instead of overwriting it. Re-running identical data is safe. Its output includes source, inserted, already-present, target, and relationship-check counts. Compare `source_rows` with the corresponding target totals in the report before using the site. Never remove the original `.db` file until you have verified the Supabase data.
+
+For a SQLite file copied from an old Render disk or another location, pass that file's path as the final argument. The migration intentionally does not remove or modify its source.
+
+## Laptop PostgreSQL backup
+
+The laptop database is a backup copy, not the main database. Create it and set these local `.env` values:
+
+```env
+DATABASE_URL=<Supabase PostgreSQL URL>
+REMOTE_API_URL=https://<render-service>.onrender.com/api
+API_ACCESS_TOKEN=<Render API access token>
+BACKUP_DATABASE_URL=postgresql://postgres:<local-password>@127.0.0.1:5432/dr_reporting
+BACKUP_INTERVAL_SECONDS=300
+BACKUP_BATCH_SIZE=500
+BACKUP_LOCAL_DIR=backups
+```
+
+Apply the schema to the laptop backup database and start its outbound-only agent:
+
+```bash
+DATABASE_URL="$BACKUP_DATABASE_URL" .venv/bin/alembic -c backend/alembic.ini upgrade head
+PYTHONPATH=backend .venv/bin/python backend/scripts/laptop_backup_agent.py
+```
+
+On first start, the agent upserts a cloud snapshot into laptop PostgreSQL and records its change cursor. It then asks Supabase for up to 500 new changes every 300 seconds by default. Change the interval with `BACKUP_INTERVAL_SECONDS`. If the laptop is off, Supabase continues serving and storing reports. When the agent returns, it resumes from the last acknowledged cursor. Replayed changes use stable primary keys and are safe to apply again.
+
+The header has one **Backup to Laptop** button. It requests an immediate backup on the agent's next poll; it does not claim success until the agent commits and acknowledges. The status reports laptop connectivity, pending changes, and the last confirmed backup time. If the agent is off, the request remains pending and production is unaffected.
+
+## Daily JSON and external storage
+
+`GET /api/backup/export` downloads a versioned JSON document for all application records. It works while the laptop is off. `POST /api/backup/import` validates the version, table shapes, IDs, types, and relationships, then restores in a transaction using primary-key upserts. Re-importing the same file is safe. Invalid input or a constraint failure rolls the whole import back.
+
+The laptop agent also saves a dated JSON copy under `BACKUP_LOCAL_DIR` when it is running. For a daily copy independent of the laptop, the repository includes a GitHub Actions scheduled workflow. Configure these Render environment values to enable S3-compatible uploads:
+
+```text
+BACKUP_PROVIDER=s3
+BACKUP_BUCKET=<bucket>
+BACKUP_PREFIX=field-reports
+AWS_ACCESS_KEY_ID=<key>
+AWS_SECRET_ACCESS_KEY=<secret>
+AWS_REGION=<region>
+AWS_ENDPOINT_URL=<optional S3-compatible endpoint>
+```
+
+Then add GitHub Actions secret `BACKUP_API_URL` (the Render API URL ending in `/api`) and secret `API_ACCESS_TOKEN` (the same Render token). Add repository variable `BACKUP_PROVIDER=s3`. The scheduled workflow exports JSON from FastAPI and asks the backend to upload it to the configured bucket each day; it can also be run manually from the Actions tab. The laptop agent uses the same configured backend upload when it is running.
+
+Without all required S3 settings, the UI explicitly says **External backup not configured**. JSON remains downloadable from the API and saved locally by the agent, but a file on Render's temporary filesystem is not an off-site backup. Treat the S3 bucket as the separate disaster-recovery copy and test restoring a downloaded JSON file periodically.
 
 ## Development
 
 ```bash
 cp .env.example .env
-# Set POSTGRES_PASSWORD in .env.
-docker compose up -d db
+# Set DATABASE_URL to a local PostgreSQL database or a Supabase development project.
 python -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/alembic -c backend/alembic.ini upgrade head
@@ -29,50 +113,15 @@ npm install --prefix frontend
 npm run dev --prefix frontend
 ```
 
-The connection is configured with `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`. `DATABASE_URL` remains an optional full-URL override for tests or unusual deployments. PostgreSQL can therefore move to another machine later without frontend changes.
+Set `API_ACCESS_TOKEN` for the API and `CORS_ORIGINS=http://localhost:5173`. The Vite server serves the UI at `http://localhost:5173`; the API docs are at `http://localhost:8000/docs`.
 
-## Deploy Render backend and Netlify frontend
+To run laptop PostgreSQL locally with the included Compose file, first set `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `BACKUP_DATABASE_URL` in `.env`, then run `docker compose up -d db`.
 
-1. Create a Render Blueprint from `render.yaml`. It deploys the FastAPI backend, attaches a persistent disk at `/var/data`, and keeps the SQLite workspace at `/var/data/field_reports.db`. A persistent disk is required; Render only preserves files under the disk mount path, and services with a disk cannot scale to multiple instances. Render requires a paid compute plan for persistent disks. [Render disk docs](https://render.com/docs/disks), [Blueprint disk settings](https://render.com/docs/blueprint-spec).
-2. Deploy the frontend on Netlify from this repository. `netlify.toml` sets `frontend/dist` as the publish directory and includes the React route rewrite. Set Netlify build environment variable `VITE_API_URL` to `https://<your-render-service>.onrender.com/api`, then redeploy the frontend.
-3. In Render, set `CORS_ORIGINS` to the exact Netlify site origin, for example `https://your-site.netlify.app`. Keep the generated Render `API_ACCESS_TOKEN` private. The health check at `/api/health` does not need the key.
-4. On your laptop, set `REMOTE_API_URL=https://<your-render-service>.onrender.com/api` in `.env`. Copy the Render `API_ACCESS_TOKEN` into this laptop `.env` as well. Keep the local `POSTGRES_*` values pointed at your laptop's PostgreSQL database.
-5. Apply the PostgreSQL migrations locally, then start the connector from the project directory:
-
-   ```bash
-   .venv/bin/alembic -c backend/alembic.ini upgrade head
-   PYTHONPATH=backend .venv/bin/python backend/scripts/laptop_sync_agent.py
-   ```
-
-   On first connection, the agent copies the current laptop PostgreSQL data into an empty Render SQLite workspace. Start this agent before adding data on the live site. It then stays connected outbound to Render, so you do not need to expose your laptop or PostgreSQL port to the internet.
-
-   The hosted API rejects create, update, import, and delete requests until this first copy completes. That startup lock prevents new hosted records from being overwritten by the initial laptop-to-Render seed. If Render already has records during first setup, the agent refuses to replace them; stop and reconcile those records before initializing the connector.
-
-When you press **Flush to laptop**, Render stores a snapshot request in SQLite. The agent claims it, replaces the corresponding records in laptop PostgreSQL in one transaction, commits, then acknowledges the request. If PostgreSQL or the network fails, it reports the failure and leaves the snapshot queued for retry. Once acknowledged, the queued snapshot is removed; the Render SQLite working data remains so the live site keeps working.
-
-If the laptop is off, edits remain on Render's persistent SQLite disk and the button shows that a flush is queued. The laptop must be running the agent for PostgreSQL to receive them. The Render disk is required for this waiting period so a backend restart does not lose the staged workspace.
-
-For an existing installation that previously stored application records in `dr_reporting.db`, run this once after the PostgreSQL migrations:
+## Validation
 
 ```bash
-PYTHONPATH=backend .venv/bin/python backend/scripts/migrate_legacy_sqlite.py dr_reporting.db
+DATABASE_URL='sqlite://' PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -q
+npm run build --prefix frontend
 ```
 
-The migration preserves IDs, copies tables in dependency order, skips conflicts, and can be run again safely.
-
-Run backend tests with `.venv/bin/pytest backend/tests -q`.
-
-Open `http://localhost:5173`. The Vite development server proxies `/api` to the backend on port 8000. API documentation is available at `http://localhost:8000/docs`.
-
-The header shows whether the laptop agent is connected, a snapshot is being sent, changes need a flush, or data is synchronized. Click it to queue a full snapshot for laptop PostgreSQL. API checks are available at `GET /api/health/db` and `GET /api/sync/status`; `POST /api/sync/flush` requests a snapshot.
-
-## Main workflows
-
-- **Add visit:** dependent HQ → Area → Doctor selection with doctor activity context.
-- **Multiple visits:** select several doctors in an area and atomically create an independent visit for each one.
-- **Insights:** period comparisons, repeat activity, coverage, top doctors/products, weekday patterns, category coverage, and time-since-last-visit analysis.
-- **Data management:** remove individual visits, doctors, products, or areas, or clear a complete data category using an exact confirmation phrase.
-
-## Import safety
-
-Uploading a workbook creates a preview only. Review the detected mapping, validation results, new and matched counts, and resolve every ambiguous row before confirmation. Confirmation never creates visits, never deletes doctors omitted from a workbook, and only replaces existing doctor fields when the imported cell is nonblank.
+SQLite is used by automated tests only. Production tables are created and changed by Alembic migrations on PostgreSQL.

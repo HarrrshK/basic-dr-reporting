@@ -1,23 +1,25 @@
 import {useEffect,useState} from 'react'
 import {api,setApiToken} from '../api'
-type Status={pending_records:number,syncing:boolean,dirty:boolean,laptop_agent_online:boolean,bootstrap_complete:boolean,bootstrap_blocked?:boolean,last_successful_sync?:string,backend_unavailable?:boolean,auth_required?:boolean}
+type Status={laptop_connected:boolean,last_successful_backup?:string|null,last_external_backup_at?:string|null,pending_changes:number,last_error?:string|null,backup_requested:boolean,external_backup_configured:boolean,backend_unavailable?:boolean,auth_required?:boolean}
 export default function SyncIndicator(){
  const [status,setStatus]=useState<Status>()
- function refresh(){api<Status>('/sync/status').then(setStatus).catch((error:Error)=>setStatus({pending_records:0,syncing:false,dirty:false,laptop_agent_online:false,bootstrap_complete:false,backend_unavailable:true,auth_required:error.message.includes('key required')||error.message.includes('API_ACCESS_TOKEN')}))}
+ function refresh(){api<Status>('/backup/status').then(setStatus).catch((error:Error)=>setStatus({laptop_connected:false,pending_changes:0,backup_requested:false,external_backup_configured:false,backend_unavailable:true,auth_required:error.message.includes('key required')||error.message.includes('API_ACCESS_TOKEN')}))}
  useEffect(()=>{refresh();const timer=window.setInterval(refresh,5000);return()=>window.clearInterval(timer)},[])
  async function trigger(){
   if(!status)return
   if(status.auth_required){
-   const value=window.prompt('Enter the API access key configured on your laptop backend. It is stored only in this browser.');
+   const value=window.prompt('Enter the API access key configured on Render. It is stored only in this browser.');
    if(value===null)return
    setApiToken(value);refresh();return
   }
   if(status.backend_unavailable){refresh();return}
-  if(!status.bootstrap_complete){refresh();return}
-  setStatus(current=>current?{...current,syncing:true}:current);await api('/sync/flush',{method:'POST'}).catch(()=>null);refresh()
+  await api('/backup/request',{method:'POST'}).catch(()=>null);refresh()
  }
- if(!status)return <div className="sync-indicator checking"><i/> Checking database…</div>
- const tone=status.backend_unavailable?'offline':!status.bootstrap_complete?'setup':!status.laptop_agent_online?'offline':status.syncing?'syncing':status.dirty||status.pending_records?'pending':'connected'
- const label=status.auth_required?'Connect sync service':status.backend_unavailable?'Render API unreachable':!status.bootstrap_complete?status.bootstrap_blocked?'Laptop setup needs review':'Start laptop agent first':status.syncing?'Sending snapshot to laptop…':status.pending_records?status.laptop_agent_online?`${status.pending_records} flush queued`:`Laptop offline · ${status.pending_records} queued`:status.dirty?'Flush to laptop':status.laptop_agent_online?'Laptop connected · synced':'Laptop connector offline'
- return <button className={`sync-indicator ${tone}`} onClick={trigger} title={status.auth_required?'Enter the Render API access key':status.backend_unavailable?'Check the Netlify API URL and Render service':!status.bootstrap_complete?'Start the laptop connector before adding site data':status.dirty?'Send current app data to laptop PostgreSQL':status.last_successful_sync?`Last laptop commit: ${new Date(status.last_successful_sync).toLocaleString()}`:'Click to queue a snapshot for laptop PostgreSQL'}><i/>{label}</button>
+ if(!status)return <div className="sync-indicator checking"><i/> Checking backup…</div>
+ const tone=status.backend_unavailable||!status.laptop_connected?'offline':status.backup_requested||status.pending_changes?'pending':'connected'
+ const last=status.last_successful_backup?`Last successful backup: ${new Date(status.last_successful_backup).toLocaleString()}`:'No laptop backup completed yet.'
+ const external=status.external_backup_configured?(status.last_external_backup_at?`S3 upload: ${new Date(status.last_external_backup_at).toLocaleString()}`:'S3 configured · no upload confirmed yet'):'External backup not configured'
+ const label=status.auth_required?'Connect backup':status.backend_unavailable?'Production API unreachable':!status.laptop_connected?`Laptop offline${status.pending_changes?` · ${status.pending_changes} pending`:''}`:status.backup_requested?'Backup requested':status.pending_changes?`${status.pending_changes} changes to back up`:'Laptop backup connected'
+ const title=[last,external,status.last_error||''].filter(Boolean).join(' ')
+ return <button className={`sync-indicator ${tone}`} onClick={trigger} title={title}><i/><span className="sync-copy"><b>{label}</b><small>{last} · {external}</small></span><span className="sync-action">Backup to Laptop</span></button>
 }

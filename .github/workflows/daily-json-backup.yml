@@ -1,0 +1,22 @@
+name: Daily JSON backup
+
+on:
+  schedule:
+    - cron: "25 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  archive:
+    if: ${{ vars.BACKUP_PROVIDER == 's3' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Export and upload daily JSON
+        env:
+          BACKUP_API_URL: ${{ secrets.BACKUP_API_URL }}
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
+        run: python backend/scripts/scheduled_json_backup.py

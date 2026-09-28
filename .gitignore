@@ -8,4 +8,5 @@ __pycache__/
 .env
 node_modules/
 dist/
+backups/
 .DS_Store
