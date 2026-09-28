@@ -62,7 +62,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Product not found")
     links = db.scalar(select(func.count()).select_from(VisitProduct).where(VisitProduct.product_id == product_id)) or 0
     db.execute(delete(VisitProduct).where(VisitProduct.product_id == product_id))
-    db.delete(product); db.commit()
+    db.delete(product)
+    db.commit()
     return {"id": product_id, "removed_visit_links": links}
 
 

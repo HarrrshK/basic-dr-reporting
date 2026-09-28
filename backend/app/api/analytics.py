@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -88,11 +88,11 @@ def follow_ups(status: str = "pending", due_from: date | None = None, due_to: da
 
 @router.patch("/follow-ups/{visit_id}")
 def update_follow_up(visit_id: int, status: FollowUpStatus, db: Session = Depends(get_db)):
-    from fastapi import HTTPException
     visit = db.get(Visit, visit_id)
     if not visit or not visit.follow_up_required:
         raise HTTPException(404, "Follow-up not found")
-    visit.follow_up_status = status; db.commit()
+    visit.follow_up_status = status
+    db.commit()
     return {"id": visit.id, "status": visit.follow_up_status}
 
 

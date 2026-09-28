@@ -15,5 +15,7 @@ import './products.css'
 import './bulk.css'
 import './insights.css'
 import './data.css'
+import './sync.css'
+import './header.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>)

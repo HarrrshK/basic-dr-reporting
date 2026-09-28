@@ -96,3 +96,10 @@ class ImportBatch(Base):
     status: Mapped[str] = mapped_column(String(30), default="preview")
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProcessedSyncOperation(Base):
+    __tablename__ = "processed_sync_operations"
+    operation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(80), index=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
