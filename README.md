@@ -25,9 +25,9 @@ If the database password contains reserved URL characters, URL-encode them befor
 ## Deploy the API to Render
 
 1. Push the repository to GitHub and create a Render Blueprint using `render.yaml`.
-2. On the Render service, set `DATABASE_URL` to the Supabase PostgreSQL URL and `CORS_ORIGINS` to the exact Netlify site origin (for example `https://your-site.netlify.app`). Render generates `API_ACCESS_TOKEN`; keep it private.
+2. On the Render service, set `DATABASE_URL` to the Supabase PostgreSQL URL. Browser API routes are public for this single-user app. Keep `API_ACCESS_TOKEN` as a Render-only secret if you use the laptop backup agent or scheduled JSON backup; never add it to Netlify.
 3. Deploy. The start command runs Alembic migrations before starting FastAPI. There is no production SQLite file or persistent disk. A Render restart does not remove application records because they live in Supabase.
-4. Confirm `https://<render-service>.onrender.com/api/health` returns `{"status":"ok"}`. `GET /api/health/db` checks the actual PostgreSQL connection and requires the API token.
+4. Confirm `https://<render-service>.onrender.com/api/health` returns `{"status":"ok"}`. `GET /api/health/db` checks the actual PostgreSQL connection and is available without a browser token.
 
 The Render free web service can spin down while idle, so the first request after a quiet period may take longer. Its local filesystem is not used for report storage.
 
@@ -35,8 +35,8 @@ The Render free web service can spin down while idle, so the first request after
 
 1. Import the same GitHub repository as a Netlify site.
 2. Set the build environment variable `VITE_API_URL` to `https://<render-service>.onrender.com/api`.
-3. Set Render's `CORS_ORIGINS` to the exact Netlify URL, then redeploy both services.
-4. Open the site. The header asks for the Render `API_ACCESS_TOKEN` once and stores it in that browser's local storage. The browser talks only to FastAPI; it never receives the database URL.
+3. Redeploy both services. The API allows cross-origin requests from any site and does not use cookie credentials.
+4. Open the site. It talks to FastAPI without a browser-held API token. The browser never receives the database URL or backup agent token.
 
 ## Move existing SQLite data to Supabase
 
@@ -46,7 +46,7 @@ After Render or a local Alembic command has upgraded Supabase to the current mig
 
 ```bash
 cp .env.example .env
-# Edit .env and set DATABASE_URL to Supabase, plus API_ACCESS_TOKEN if running locally.
+# Edit .env and set DATABASE_URL to Supabase; API_ACCESS_TOKEN is only needed for backup agents.
 .venv/bin/alembic -c backend/alembic.ini upgrade head
 PYTHONPATH=backend .venv/bin/python backend/scripts/migrate_legacy_sqlite.py dr_reporting.db
 ```
@@ -82,7 +82,7 @@ The header has one **Backup to Laptop** button. It requests an immediate backup 
 
 ## Daily JSON and external storage
 
-`GET /api/backup/export` downloads a versioned JSON document for all application records. It works while the laptop is off. `POST /api/backup/import` validates the version, table shapes, IDs, types, and relationships, then restores in a transaction using primary-key upserts. Re-importing the same file is safe. Invalid input or a constraint failure rolls the whole import back.
+`GET /api/backup/export` downloads a versioned JSON document for all application records. It works while the laptop is off and requires the private backup token. `POST /api/backup/import` validates the version, table shapes, IDs, types, and relationships, then restores in a transaction using primary-key upserts. Re-importing the same file is safe. Invalid input or a constraint failure rolls the whole import back. Normal reporting routes do not require the token.
 
 The laptop agent also saves a dated JSON copy under `BACKUP_LOCAL_DIR` when it is running. For a daily copy independent of the laptop, the repository includes a GitHub Actions scheduled workflow. Configure these Render environment values to enable S3-compatible uploads:
 
@@ -113,7 +113,7 @@ npm install --prefix frontend
 npm run dev --prefix frontend
 ```
 
-Set `API_ACCESS_TOKEN` for the API and `CORS_ORIGINS=http://localhost:5173`. The Vite server serves the UI at `http://localhost:5173`; the API docs are at `http://localhost:8000/docs`.
+Set `API_ACCESS_TOKEN` only if using the laptop backup agent or external backup workflow. The Vite server serves the UI at `http://localhost:5173`; the API docs are at `http://localhost:8000/docs`. CORS accepts requests from any origin.
 
 To run laptop PostgreSQL locally with the included Compose file, first set `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `BACKUP_DATABASE_URL` in `.env`, then run `docker compose up -d db`.
 
