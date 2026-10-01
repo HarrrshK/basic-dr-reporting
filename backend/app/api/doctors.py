@@ -91,9 +91,11 @@ def filter_options(hq: str | None = None, area: str | None = None, active: bool 
         "areas": [dict(row._mapping) for row in area_rows],
         "categories": values(Doctor.category, *base),
         "specialty_groups": values(Doctor.specialty_group, *base),
+        "existing_specialties": values(Doctor.existing_specialty, *base),
         "doctor_statuses": values(Doctor.doctor_status, *base),
         "qualifications": values(Doctor.qualification, *base),
         "genders": values(Doctor.gender, *base),
+        "clinics": values(Doctor.clinic_hospital, *base),
         "doctors": [dict(row._mapping) for row in doctors],
     }
 
