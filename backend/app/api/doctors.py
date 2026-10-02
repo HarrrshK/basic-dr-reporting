@@ -64,13 +64,16 @@ def create_doctor(payload: DoctorCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/filter-options")
-def filter_options(hq: str | None = None, area: str | None = None, active: bool | None = None,
+def filter_options(hq: str | None = None, area: str | None = None, category: str | None = None,
+                   active: bool | None = None,
                    db: Session = Depends(get_db)):
     base = []
     if hq:
         base.append(Doctor.hq == hq)
     if area:
         base.append(Doctor.area.has(Area.name == area))
+    if category:
+        base.append(Doctor.category == category)
     if active is not None:
         base.append(Doctor.active == active)
 
@@ -81,6 +84,8 @@ def filter_options(hq: str | None = None, area: str | None = None, active: bool 
     area_conditions = [Doctor.active == active] if active is not None else []
     if hq:
         area_conditions.append(Doctor.hq == hq)
+    if category:
+        area_conditions.append(Doctor.category == category)
     area_rows = db.execute(select(Area.id, Area.name, func.count(Doctor.id).label("doctor_count"))
         .join(Doctor).where(*area_conditions).group_by(Area.id).order_by(Area.name)).all()
     doctors = db.execute(select(Doctor.id, Doctor.external_id, Doctor.name, Area.name.label("area"), Doctor.hq,

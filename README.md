@@ -117,6 +117,10 @@ Set `API_ACCESS_TOKEN` only if using the laptop backup agent or external backup 
 
 To run laptop PostgreSQL locally with the included Compose file, first set `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `BACKUP_DATABASE_URL` in `.env`, then run `docker compose up -d db`.
 
+## Reports and call exports
+
+The Reports page provides date, HQ, area, category, doctor, product, purpose, outcome, and follow-up filters. It derives visit trends, doctor frequency and gaps, coverage, territory activity, product activity, call purpose/outcome mix, and follow-up status from the doctor and visit records. Filtered call reports can be downloaded as CSV or Excel (`.xlsx`) from Reports or Visit History. Doctor CSV exports preserve the selected doctor filters and search term.
+
 ## Validation
 
 ```bash
