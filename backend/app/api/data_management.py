@@ -3,7 +3,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Area, Doctor, ImportBatch, Product, Visit, VisitProduct
+from ..models import Area, DailyActivity, Doctor, ImportBatch, Product, Visit, VisitProduct
 
 router = APIRouter(prefix="/data-management", tags=["data-management"])
 
@@ -14,6 +14,7 @@ CONFIRMATIONS = {
     "follow_ups": "DELETE ALL FOLLOW UPS",
     "imports": "DELETE IMPORT HISTORY",
     "areas": "DELETE ALL AREAS",
+    "daily_reports": "DELETE ALL DAILY REPORTS",
     "everything": "RESET EVERYTHING",
 }
 
@@ -23,7 +24,8 @@ def summary(db: Session = Depends(get_db)):
     count = lambda model: db.scalar(select(func.count()).select_from(model)) or 0
     return {"doctors": count(Doctor), "active_doctors": db.scalar(select(func.count(Doctor.id)).where(Doctor.active)) or 0,
             "visits": count(Visit), "products": count(Product), "areas": count(Area), "imports": count(ImportBatch),
-            "follow_ups": db.scalar(select(func.count(Visit.id)).where(Visit.follow_up_required)) or 0}
+            "follow_ups": db.scalar(select(func.count(Visit.id)).where(Visit.follow_up_required)) or 0,
+            "daily_reports": count(DailyActivity)}
 
 
 @router.delete("/purge/{category}")
@@ -48,6 +50,8 @@ def purge(category: str, confirm: str, db: Session = Depends(get_db)):
             follow_up_required=False, follow_up_date=None, follow_up_reason=None, follow_up_status=None))
     if category in {"imports", "everything"}:
         db.execute(delete(ImportBatch))
+    if category in {"daily_reports", "everything"}:
+        db.execute(delete(DailyActivity))
     if category == "areas":
         db.execute(update(Doctor).values(area_id=None))
         db.execute(delete(Area))

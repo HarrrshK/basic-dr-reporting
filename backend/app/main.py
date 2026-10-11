@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
-from .api import analytics, backup, data_management, doctors, exports, imports, products, visits
+from .api import analytics, backup, daily_reports, data_management, doctors, exports, imports, products, visits
 from .config import settings
 from .database import engine
 from . import models  # noqa: F401
@@ -32,7 +32,7 @@ async def protect_backup_operations(request, call_next):
 
 
 for router in (imports.router, doctors.router, visits.router, products.router, analytics.router,
-               exports.router, data_management.router, backup.router):
+               exports.router, data_management.router, daily_reports.router, backup.router):
     app.include_router(router, prefix="/api")
 
 

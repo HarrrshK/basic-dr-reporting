@@ -34,7 +34,7 @@ def main():
     base_url = os.environ["BACKUP_API_URL"].rstrip("/")
     token = os.environ["API_ACCESS_TOKEN"]
     document = request(f"{base_url}/backup/export", token)
-    if (document.get("export_version") != 1 or not document.get("export_date")
+    if (document.get("export_version") not in {1, 2} or not document.get("export_date")
             or not isinstance(document.get("records"), dict)):
         raise RuntimeError("Production API returned an invalid JSON backup document")
     result = request(f"{base_url}/backup/archive", token, "POST", {"document": document})

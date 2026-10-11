@@ -15,6 +15,16 @@ class FollowUpStatus(str, Enum):
     cancelled = "cancelled"
 
 
+class DailyActivity(Base):
+    __tablename__ = "daily_activities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    activity_type: Mapped[str] = mapped_column(String(40), index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Area(Base):
     __tablename__ = "areas"
     id: Mapped[int] = mapped_column(primary_key=True)

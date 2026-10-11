@@ -17,5 +17,6 @@ import './insights.css'
 import './data.css'
 import './sync.css'
 import './header.css'
+import './daily.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>)

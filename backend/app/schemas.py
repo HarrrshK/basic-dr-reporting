@@ -10,6 +10,20 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DailyActivityCreate(BaseModel):
+    report_date: date
+    activity_type: str
+    description: str | None = Field(default=None, max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_activity_type(self):
+        allowed = {"field_work", "meeting", "admin", "leave", "holiday"}
+        if self.activity_type not in allowed:
+            raise ValueError(f"activity_type must be one of: {', '.join(sorted(allowed))}")
+        self.description = self.description.strip() if self.description else None
+        return self
+
+
 class AreaOut(ORMModel):
     id: int
     name: str

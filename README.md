@@ -121,6 +121,8 @@ To run laptop PostgreSQL locally with the included Compose file, first set `POST
 
 The Reports page provides date, HQ, area, category, doctor, product, purpose, outcome, and follow-up filters. It derives visit trends, doctor frequency and gaps, coverage, territory activity, product activity, call purpose/outcome mix, and follow-up status from the doctor and visit records. Filtered call reports can be downloaded as CSV or Excel (`.xlsx`) from Reports or Visit History. Doctor CSV exports preserve the selected doctor filters and search term.
 
+The **Today's report** workflow records the day's type as Field Work, Meeting, Admin, Leave, or Holiday. Descriptions are optional. Field Work exposes single-doctor and bulk call entry and shows the calls already marked for that date. **Missed calls** compares the active doctor master with calls recorded during a selected calendar month, either overall or filtered by HQ and area, and shows each missed doctor's previous call date and gap.
+
 ## Validation
 
 ```bash

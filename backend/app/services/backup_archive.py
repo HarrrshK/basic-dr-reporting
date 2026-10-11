@@ -9,10 +9,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from ..models import Area, Doctor, ImportBatch, Product, Visit, VisitProduct
+from ..models import Area, DailyActivity, Doctor, ImportBatch, Product, Visit, VisitProduct
 
-EXPORT_VERSION = 1
-SNAPSHOT_MODELS = (Area, Product, ImportBatch, Doctor, Visit, VisitProduct)
+EXPORT_VERSION = 2
+SNAPSHOT_MODELS = (Area, Product, ImportBatch, Doctor, Visit, VisitProduct, DailyActivity)
 MODEL_BY_TABLE = {model.__tablename__: model for model in SNAPSHOT_MODELS}
 MODEL_BY_TABLE["visit_products"] = VisitProduct
 
@@ -65,7 +65,8 @@ def _typed_value(column, value):
 def validate_backup_document(document: dict) -> dict[str, list[dict]]:
     if not isinstance(document, dict):
         raise ValueError("Backup document must be a JSON object")
-    if document.get("export_version") != EXPORT_VERSION:
+    version = document.get("export_version")
+    if version not in {1, EXPORT_VERSION}:
         raise ValueError(f"Unsupported backup export_version: {document.get('export_version')!r}")
     try:
         date.fromisoformat(document["export_date"])
@@ -73,6 +74,8 @@ def validate_backup_document(document: dict) -> dict[str, list[dict]]:
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("Backup requires valid export_date and generated_at values") from error
     records = document.get("records")
+    if version == 1 and isinstance(records, dict) and "daily_activities" not in records:
+        records = {**records, "daily_activities": []}
     if not isinstance(records, dict) or set(records) != set(MODEL_BY_TABLE):
         raise ValueError("Backup records must contain every supported application table")
 
@@ -163,7 +166,7 @@ def apply_backup_changes(db: Session, changes: list[dict]) -> None:
 def _reset_sequences(db: Session) -> None:
     if _bind(db).dialect.name != "postgresql":
         return
-    for table_name in ("areas", "products", "doctors", "visits"):
+    for table_name in ("areas", "products", "doctors", "visits", "daily_activities"):
         db.execute(text(
             f"SELECT setval(pg_get_serial_sequence('{table_name}', 'id'), "
             f"COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM {table_name}"

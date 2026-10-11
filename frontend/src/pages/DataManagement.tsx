@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react'
 import {api} from '../api'
-type Summary={doctors:number,active_doctors:number,visits:number,products:number,areas:number,imports:number,follow_ups:number}
+type Summary={doctors:number,active_doctors:number,visits:number,products:number,areas:number,imports:number,follow_ups:number,daily_reports:number}
 type Visit={id:number,visit_date:string,doctor:{name:string},purpose?:string}
 type Doctor={id:number,name:string,external_id?:string,active:boolean,area?:{name:string}}
 type Product={id:number,name:string,visits:number}
@@ -12,7 +12,8 @@ const purges=[
  ['follow_ups','Follow-ups','DELETE ALL FOLLOW UPS','Clears follow-up fields from visits without deleting visits.'],
  ['imports','Import history','DELETE IMPORT HISTORY','Deletes saved import previews and summaries. Doctors remain.'],
  ['areas','Area assignments','DELETE ALL AREAS','Removes all areas and unassigns doctors from them.'],
- ['everything','Everything','RESET EVERYTHING','Deletes doctors, visits, products, areas, and import history.'],
+ ['daily_reports','Daily reports','DELETE ALL DAILY REPORTS','Deletes Field Work, Meeting, Admin, Leave, and Holiday day summaries. Doctor calls remain.'],
+ ['everything','Everything','RESET EVERYTHING','Deletes doctors, calls, products, areas, daily reports, and import history.'],
 ] as const
 export default function DataManagement(){
  const [summary,setSummary]=useState<Summary>(),[visits,setVisits]=useState<Visit[]>([]),[doctors,setDoctors]=useState<Doctor[]>([]),[products,setProducts]=useState<Product[]>([]),[areas,setAreas]=useState<Area[]>([]),[search,setSearch]=useState(''),[reload,setReload]=useState(0),[message,setMessage]=useState('')
