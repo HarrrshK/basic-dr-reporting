@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from fastapi import HTTPException
 
-from app.api.daily_reports import get_daily_report, missed_calls, save_daily_report
+from app.api.daily_reports import activity_summary, get_daily_report, missed_calls, save_daily_report
 from app.api.doctors import create_doctor
 from app.api.visits import create_visit
 from app.models import DailyActivity
@@ -35,6 +35,36 @@ def test_daily_report_infers_field_work_from_existing_calls(db):
     with pytest.raises(HTTPException, match="already marked") as duplicate:
         create_visit(VisitCreate(doctor_id=doctor.id, visit_date=report_date), db)
     assert duplicate.value.status_code == 409
+
+
+def test_activity_summary_counts_explicit_and_inferred_days(db):
+    doctor = create_doctor(DoctorCreate(name="Dr Field", area="KHOPOLI"), db)
+    create_visit(VisitCreate(doctor_id=doctor.id, visit_date=date(2026, 10, 2)), db)
+    save_daily_report(date(2026, 10, 3), DailyActivityCreate(
+        report_date=date(2026, 10, 3), activity_type="meeting", description="Team meeting"), db)
+    save_daily_report(date(2026, 10, 4), DailyActivityCreate(
+        report_date=date(2026, 10, 4), activity_type="leave"), db)
+
+    result = activity_summary(date(2026, 10, 1), date(2026, 10, 5), db)
+    assert result["counts"] == {
+        "field_work": 1, "meeting": 1, "admin": 0, "leave": 1, "holiday": 0,
+    }
+    assert result["reported_days"] == 3
+    assert result["unreported_days"] == 2
+    assert next(row for row in result["details"] if row["date"] == date(2026, 10, 2))["inferred"] is True
+
+
+def test_activity_summary_does_not_double_count_calls_on_explicit_day(db):
+    doctor = create_doctor(DoctorCreate(name="Dr Meeting", area="KHOPOLI"), db)
+    report_date = date(2026, 10, 7)
+    create_visit(VisitCreate(doctor_id=doctor.id, visit_date=report_date), db)
+    save_daily_report(report_date, DailyActivityCreate(
+        report_date=report_date, activity_type="meeting"), db)
+
+    result = activity_summary(report_date, report_date, db)
+    assert result["counts"]["meeting"] == 1
+    assert result["counts"]["field_work"] == 0
+    assert result["reported_days"] == 1
 
 
 def test_missed_calls_support_overall_hq_area_and_last_visit(db):

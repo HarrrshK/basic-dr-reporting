@@ -10,6 +10,7 @@ from ..models import Area, DailyActivity, Doctor, Visit
 from ..schemas import DailyActivityCreate
 
 router = APIRouter(tags=["daily reports"])
+ACTIVITY_TYPES = ("field_work", "meeting", "admin", "leave", "holiday")
 
 
 @router.get("/daily-reports/{report_date}")
@@ -45,6 +46,51 @@ def save_daily_report(report_date: date, payload: DailyActivityCreate,
     db.refresh(activity)
     return {"id": activity.id, "report_date": activity.report_date,
             "activity_type": activity.activity_type, "description": activity.description}
+
+
+@router.get("/analytics/activity-summary")
+def activity_summary(start: date, end: date, db: Session = Depends(get_db)):
+    """Count working-day classifications without losing older call-only field days."""
+    if start > end:
+        raise HTTPException(422, "Start date must be on or before end date")
+
+    activities = list(db.scalars(select(DailyActivity).where(
+        DailyActivity.report_date.between(start, end)).order_by(DailyActivity.report_date)))
+    explicit_dates = {activity.report_date for activity in activities}
+    inferred_field_dates = set(db.scalars(select(Visit.visit_date).where(
+        Visit.visit_date.between(start, end),
+        ~Visit.visit_date.in_(explicit_dates) if explicit_dates else True,
+    ).distinct()))
+
+    counts = {activity_type: 0 for activity_type in ACTIVITY_TYPES}
+    for activity in activities:
+        if activity.activity_type in counts:
+            counts[activity.activity_type] += 1
+    counts["field_work"] += len(inferred_field_dates)
+
+    details = [{
+        "date": activity.report_date,
+        "activity_type": activity.activity_type,
+        "description": activity.description,
+        "inferred": False,
+    } for activity in activities]
+    details.extend({
+        "date": report_date,
+        "activity_type": "field_work",
+        "description": None,
+        "inferred": True,
+    } for report_date in inferred_field_dates)
+    details.sort(key=lambda row: row["date"], reverse=True)
+
+    calendar_days = (end - start).days + 1
+    reported_days = sum(counts.values())
+    return {
+        "period": {"start": start, "end": end, "calendar_days": calendar_days},
+        "counts": counts,
+        "reported_days": reported_days,
+        "unreported_days": max(calendar_days - reported_days, 0),
+        "details": details,
+    }
 
 
 @router.get("/analytics/missed-calls")
