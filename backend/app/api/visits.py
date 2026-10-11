@@ -20,6 +20,10 @@ def load_products(db: Session, ids: list[int]) -> list[Product]:
 @router.post("", response_model=VisitOut, status_code=201)
 def create_visit(payload: VisitCreate, db: Session = Depends(get_db)):
     if not db.get(Doctor, payload.doctor_id): raise HTTPException(422, "Doctor does not exist")
+    duplicate = db.scalar(select(Visit.id).where(
+        Visit.doctor_id == payload.doctor_id, Visit.visit_date == payload.visit_date).limit(1))
+    if duplicate:
+        raise HTTPException(409, "This doctor is already marked for this report date")
     values = payload.model_dump(exclude={"product_ids"})
     if payload.follow_up_required: values["follow_up_status"] = FollowUpStatus.pending
     visit = Visit(**values, products=load_products(db, payload.product_ids))
@@ -37,6 +41,11 @@ def create_bulk_visits(payload: BulkVisitCreate, db: Session = Depends(get_db)):
     inactive = sorted(doctor.id for doctor in doctors if not doctor.active)
     if inactive:
         raise HTTPException(422, f"Inactive doctors cannot receive new visits: {inactive}")
+    already_marked = list(db.scalars(select(Visit.doctor_id).where(
+        Visit.doctor_id.in_(payload.doctor_ids), Visit.visit_date == payload.visit_date).distinct()))
+    if already_marked:
+        names = sorted(doctor.name for doctor in doctors if doctor.id in set(already_marked))
+        raise HTTPException(409, f"Already marked for this report date: {', '.join(names)}")
     products = load_products(db, payload.product_ids)
     values = payload.model_dump(exclude={"doctor_ids", "product_ids"})
     if payload.follow_up_required:

@@ -32,6 +32,9 @@ def test_daily_report_infers_field_work_from_existing_calls(db):
     assert result["activity"] is None
     assert result["inferred_activity_type"] == "field_work"
     assert result["call_count"] == result["unique_doctors"] == 1
+    with pytest.raises(HTTPException, match="already marked") as duplicate:
+        create_visit(VisitCreate(doctor_id=doctor.id, visit_date=report_date), db)
+    assert duplicate.value.status_code == 409
 
 
 def test_missed_calls_support_overall_hq_area_and_last_visit(db):

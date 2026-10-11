@@ -25,6 +25,10 @@ def test_bulk_visit_creation_is_atomic_and_links_products(db):
         purpose="Camp", product_ids=[product.id]), db)
     assert result["created"] == 2
     assert db.scalar(select(func.count(Visit.id))) == 2
+
+    with pytest.raises(HTTPException, match="Already marked") as duplicate_bulk:
+        create_bulk_visits(BulkVisitCreate(doctor_ids=[first.id], visit_date=date.today()), db)
+    assert duplicate_bulk.value.status_code == 409
     assert db.scalar(select(func.count()).select_from(VisitProduct)) == 2
 
     missing = BulkVisitCreate(doctor_ids=[first.id, 999], visit_date=date.today())
